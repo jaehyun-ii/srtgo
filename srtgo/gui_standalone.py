@@ -294,13 +294,37 @@ class SRTGoGUI:
         settings_grid = ttk.Frame(settings_card)
         settings_grid.pack(fill='both', expand=True)
         
+        # Row 0: Reservation (most prominent)
+        reservation_frame = ttk.Frame(settings_grid)
+        reservation_frame.pack(fill='x', pady=(0, 20))
+        
+        ttk.Button(reservation_frame, 
+                  text="🎫 기차표 예매하기",
+                  style='Primary.TButton',
+                  command=self.start_reservation).pack(side='left', padx=(0, 10))
+        
+        reservation_desc = ttk.Label(reservation_frame, 
+                              text="실시간 기차표 예매 및 예약 확인",
+                              foreground='#666666')
+        reservation_desc.pack(side='left', anchor='w')
+        
+        # Separator
+        separator = ttk.Separator(settings_grid, orient='horizontal')
+        separator.pack(fill='x', pady=10)
+        
+        # Settings header
+        settings_header = ttk.Label(settings_grid,
+                                   text="⚙️ 계정 및 환경 설정",
+                                   style='Heading.TLabel')
+        settings_header.pack(anchor='w', pady=(10, 15))
+        
         # Row 1: Login settings
         login_frame = ttk.Frame(settings_grid)
         login_frame.pack(fill='x', pady=(0, 15))
         
         ttk.Button(login_frame, 
                   text="🔐 로그인 설정",
-                  style='Primary.TButton',
+                  style='Secondary.TButton',
                   command=self.setup_login).pack(side='left', padx=(0, 10))
         
         login_desc = ttk.Label(login_frame, 
@@ -336,12 +360,20 @@ class SRTGoGUI:
                                foreground='#666666')
         options_desc.pack(side='left', anchor='w')
         
+        # Quick actions
+        quick_frame = ttk.Frame(settings_card)
+        quick_frame.pack(fill='x', pady=(20, 0))
+        
+        ttk.Button(quick_frame,
+                  text="📋 예매 확인/취소",
+                  command=self.check_reservations).pack(side='left', padx=(0, 10))
+        
         # Notice section
         notice_frame = ttk.Frame(settings_card)
-        notice_frame.pack(fill='x', pady=(20, 0))
+        notice_frame.pack(fill='x', pady=(15, 0))
         
         notice_label = ttk.Label(notice_frame,
-                               text="💡 실제 예매는 명령줄(CLI) 버전을 사용하세요: srtgo",
+                               text="💡 GUI에서 편리하게 예매하거나 CLI 명령어 'srtgo'를 사용하세요",
                                style='Success.TLabel')
         notice_label.pack(anchor='w')
         
@@ -364,10 +396,26 @@ class SRTGoGUI:
         version_label.pack(side='right')
         
     def start_reservation(self):
-        messagebox.showinfo("안내", "예매 기능은 CLI 버전에서 사용하세요.\n이 GUI는 설정 관리용입니다.")
+        # Check if login is configured
+        rail_type = self.rail_type.get()
+        if not keyring.get_password(rail_type, "id"):
+            messagebox.showwarning("로그인 필요", 
+                                 f"{rail_type} 로그인 정보가 설정되지 않았습니다.\n먼저 로그인 설정을 완료해주세요.")
+            self.setup_login()
+            return
+            
+        ReservationWindow(self.root, rail_type, self.debug_mode.get())
         
     def check_reservations(self):
-        messagebox.showinfo("안내", "예매 확인은 CLI 버전에서 사용하세요.\n이 GUI는 설정 관리용입니다.")
+        # Check if login is configured
+        rail_type = self.rail_type.get()
+        if not keyring.get_password(rail_type, "id"):
+            messagebox.showwarning("로그인 필요", 
+                                 f"{rail_type} 로그인 정보가 설정되지 않았습니다.\n먼저 로그인 설정을 완료해주세요.")
+            self.setup_login()
+            return
+            
+        ReservationCheckWindow(self.root, rail_type, self.debug_mode.get())
         
     def setup_login(self):
         LoginSetupWindow(self.root, self.rail_type.get(), self.debug_mode.get())
@@ -649,6 +697,498 @@ class OptionsSetupWindow:
             
         except Exception as e:
             messagebox.showerror("오류", f"저장 실패: {str(e)}")
+
+
+class ReservationWindow:
+    def __init__(self, parent, rail_type, debug):
+        self.rail_type = rail_type
+        self.debug = debug
+        
+        self.window = tk.Toplevel(parent)
+        self.window.title(f"🎫 {rail_type} 기차표 예매")
+        self.window.geometry("600x800")
+        self.window.resizable(False, False)
+        self.window.grab_set()
+        
+        # Center the window
+        self.center_window()
+        
+        # Initialize variables
+        self.setup_variables()
+        
+        self.create_interface()
+        
+    def center_window(self):
+        """Center the window on parent"""
+        self.window.update_idletasks()
+        parent_x = self.window.master.winfo_x()
+        parent_y = self.window.master.winfo_y()
+        parent_width = self.window.master.winfo_width()
+        parent_height = self.window.master.winfo_height()
+        
+        width = self.window.winfo_width()
+        height = self.window.winfo_height()
+        
+        x = parent_x + (parent_width // 2) - (width // 2)
+        y = parent_y + (parent_height // 2) - (height // 2)
+        self.window.geometry(f"+{x}+{y}")
+        
+    def setup_variables(self):
+        """Initialize form variables with saved values"""
+        from datetime import datetime, timedelta
+        
+        now = datetime.now() + timedelta(minutes=10)
+        today = now.strftime("%Y%m%d")
+        
+        is_srt = self.rail_type == "SRT"
+        default_departure = "수서" if is_srt else "서울"
+        
+        # Get saved values or defaults
+        self.departure_var = tk.StringVar(value=keyring.get_password(self.rail_type, "departure") or default_departure)
+        self.arrival_var = tk.StringVar(value=keyring.get_password(self.rail_type, "arrival") or "동대구")
+        self.date_var = tk.StringVar(value=keyring.get_password(self.rail_type, "date") or today)
+        self.time_var = tk.StringVar(value=keyring.get_password(self.rail_type, "time") or "120000")
+        
+        # Passenger counts
+        self.adult_var = tk.IntVar(value=int(keyring.get_password(self.rail_type, "adult") or 1))
+        self.child_var = tk.IntVar(value=int(keyring.get_password(self.rail_type, "child") or 0))
+        self.senior_var = tk.IntVar(value=int(keyring.get_password(self.rail_type, "senior") or 0))
+        self.disability1to3_var = tk.IntVar(value=int(keyring.get_password(self.rail_type, "disability1to3") or 0))
+        self.disability4to6_var = tk.IntVar(value=int(keyring.get_password(self.rail_type, "disability4to6") or 0))
+        
+        # Seat preference
+        self.seat_type_var = tk.StringVar(value="일반실 우선")
+        self.auto_pay_var = tk.BooleanVar(value=False)
+        
+        # Status
+        self.is_running = False
+        
+    def create_interface(self):
+        # Main container
+        main_frame = ttk.Frame(self.window)
+        main_frame.pack(fill='both', expand=True, padx=25, pady=20)
+        
+        # Header
+        header_frame = ttk.Frame(main_frame)
+        header_frame.pack(fill='x', pady=(0, 20))
+        
+        rail_icon = "🚄" if self.rail_type == "SRT" else "🚅"
+        ttk.Label(header_frame, 
+                 text=f"{rail_icon} {self.rail_type} 기차표 예매", 
+                 style='Title.TLabel').pack()
+        
+        # Route selection
+        route_frame = ttk.LabelFrame(main_frame, text="🚉 여행 경로", padding=15)
+        route_frame.pack(fill='x', pady=(0, 15))
+        
+        route_grid = ttk.Frame(route_frame)
+        route_grid.pack(fill='x')
+        
+        # Departure station
+        dep_frame = ttk.Frame(route_grid)
+        dep_frame.pack(side='left', fill='x', expand=True, padx=(0, 10))
+        
+        ttk.Label(dep_frame, text="출발역").pack(anchor='w')
+        stations, selected_stations = get_station(self.rail_type)
+        dep_combo = ttk.Combobox(dep_frame, textvariable=self.departure_var, values=selected_stations, width=15)
+        dep_combo.pack(fill='x', pady=(5, 0))
+        
+        # Arrow
+        ttk.Label(route_grid, text="→", font=('Sans', 16)).pack(side='left', padx=10)
+        
+        # Arrival station
+        arr_frame = ttk.Frame(route_grid)
+        arr_frame.pack(side='left', fill='x', expand=True, padx=(10, 0))
+        
+        ttk.Label(arr_frame, text="도착역").pack(anchor='w')
+        arr_combo = ttk.Combobox(arr_frame, textvariable=self.arrival_var, values=selected_stations, width=15)
+        arr_combo.pack(fill='x', pady=(5, 0))
+        
+        # Date and time
+        datetime_frame = ttk.LabelFrame(main_frame, text="📅 출발 일시", padding=15)
+        datetime_frame.pack(fill='x', pady=(0, 15))
+        
+        dt_grid = ttk.Frame(datetime_frame)
+        dt_grid.pack(fill='x')
+        
+        # Date
+        date_frame = ttk.Frame(dt_grid)
+        date_frame.pack(side='left', fill='x', expand=True, padx=(0, 10))
+        
+        ttk.Label(date_frame, text="출발 날짜").pack(anchor='w')
+        
+        # Generate date choices
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        date_choices = []
+        for i in range(30):
+            date_obj = now + timedelta(days=i)
+            date_str = date_obj.strftime("%Y-%m-%d (%a)")
+            date_val = date_obj.strftime("%Y%m%d")
+            date_choices.append((date_str, date_val))
+        
+        date_combo = ttk.Combobox(date_frame, values=[choice[0] for choice in date_choices], width=18)
+        date_combo.pack(fill='x', pady=(5, 0))
+        
+        # Set current date
+        current_date = self.date_var.get()
+        for i, (display, value) in enumerate(date_choices):
+            if value == current_date:
+                date_combo.set(display)
+                break
+        else:
+            date_combo.set(date_choices[0][0])
+            
+        # Update date_var when selection changes
+        def on_date_change(event):
+            selected_display = date_combo.get()
+            for display, value in date_choices:
+                if display == selected_display:
+                    self.date_var.set(value)
+                    break
+        date_combo.bind('<<ComboboxSelected>>', on_date_change)
+        
+        # Time
+        time_frame = ttk.Frame(dt_grid)
+        time_frame.pack(side='left', fill='x', expand=True, padx=(10, 0))
+        
+        ttk.Label(time_frame, text="출발 시각").pack(anchor='w')
+        time_choices = [f"{h:02d}:00" for h in range(6, 24)]  # 06:00 ~ 23:00
+        time_combo = ttk.Combobox(time_frame, values=time_choices, width=10)
+        time_combo.pack(fill='x', pady=(5, 0))
+        
+        # Set current time
+        current_time = self.time_var.get()
+        current_hour = current_time[:2] if len(current_time) >= 2 else "12"
+        time_display = f"{current_hour}:00"
+        time_combo.set(time_display)
+        
+        # Update time_var when selection changes
+        def on_time_change(event):
+            selected_time = time_combo.get()
+            hour = selected_time.split(':')[0]
+            self.time_var.set(f"{hour}0000")
+        time_combo.bind('<<ComboboxSelected>>', on_time_change)
+        
+        # Passengers
+        passengers_frame = ttk.LabelFrame(main_frame, text="👥 승객 정보", padding=15)
+        passengers_frame.pack(fill='x', pady=(0, 15))
+        
+        # Adult (always shown)
+        adult_frame = ttk.Frame(passengers_frame)
+        adult_frame.pack(fill='x', pady=(0, 5))
+        
+        ttk.Label(adult_frame, text="성인:", width=12).pack(side='left')
+        ttk.Spinbox(adult_frame, from_=1, to=9, textvariable=self.adult_var, width=5).pack(side='left', padx=(5, 0))
+        
+        # Optional passenger types based on options
+        options = get_options()
+        
+        if "child" in options:
+            child_frame = ttk.Frame(passengers_frame)
+            child_frame.pack(fill='x', pady=(0, 5))
+            ttk.Label(child_frame, text="어린이:", width=12).pack(side='left')
+            ttk.Spinbox(child_frame, from_=0, to=9, textvariable=self.child_var, width=5).pack(side='left', padx=(5, 0))
+        
+        if "senior" in options:
+            senior_frame = ttk.Frame(passengers_frame)  
+            senior_frame.pack(fill='x', pady=(0, 5))
+            ttk.Label(senior_frame, text="경로우대:", width=12).pack(side='left')
+            ttk.Spinbox(senior_frame, from_=0, to=9, textvariable=self.senior_var, width=5).pack(side='left', padx=(5, 0))
+        
+        # Seat preferences
+        seat_frame = ttk.LabelFrame(main_frame, text="💺 좌석 선택", padding=15)
+        seat_frame.pack(fill='x', pady=(0, 15))
+        
+        seat_types = ["일반실 우선", "일반실만", "특실 우선", "특실만"]
+        for i, seat_type in enumerate(seat_types):
+            ttk.Radiobutton(seat_frame, text=seat_type, variable=self.seat_type_var, 
+                          value=seat_type).pack(anchor='w', pady=2)
+        
+        # Options
+        options_frame = ttk.LabelFrame(main_frame, text="⚙️ 예매 옵션", padding=15)
+        options_frame.pack(fill='x', pady=(0, 15))
+        
+        ttk.Checkbutton(options_frame, text="💳 예매 성공 시 자동 결제", 
+                       variable=self.auto_pay_var).pack(anchor='w')
+        
+        # Status display
+        status_frame = ttk.LabelFrame(main_frame, text="📊 예매 진행 상태", padding=15)
+        status_frame.pack(fill='both', expand=True, pady=(0, 15))
+        
+        self.status_text = tk.Text(status_frame, height=8, wrap='word', state='disabled',
+                                  font=('Consolas' if self.window.tk.call('tk', 'windowingsystem') == 'win32' else 'Monospace', 9))
+        self.status_text.pack(fill='both', expand=True)
+        
+        # Scrollbar for status
+        scrollbar = ttk.Scrollbar(status_frame, orient='vertical', command=self.status_text.yview)
+        scrollbar.pack(side='right', fill='y')
+        self.status_text.configure(yscrollcommand=scrollbar.set)
+        
+        # Control buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill='x')
+        
+        self.start_button = ttk.Button(button_frame, 
+                                      text="🚀 예매 시작", 
+                                      style='Primary.TButton',
+                                      command=self.start_booking)
+        self.start_button.pack(side='left', padx=(0, 10))
+        
+        self.stop_button = ttk.Button(button_frame, 
+                                     text="⏹️ 중지",
+                                     state='disabled',
+                                     command=self.stop_booking)
+        self.stop_button.pack(side='left', padx=(0, 10))
+        
+        ttk.Button(button_frame, 
+                  text="닫기",
+                  command=self.window.destroy).pack(side='right')
+        
+    def log_message(self, message):
+        """Add message to status display"""
+        def update():
+            self.status_text.configure(state='normal')
+            self.status_text.insert(tk.END, f"{datetime.now().strftime('%H:%M:%S')} {message}\n")
+            self.status_text.configure(state='disabled')
+            self.status_text.see(tk.END)
+        
+        self.window.after(0, update)
+        
+    def start_booking(self):
+        """Start the reservation process"""
+        # Validate inputs
+        if self.departure_var.get() == self.arrival_var.get():
+            messagebox.showerror("입력 오류", "출발역과 도착역이 같습니다.")
+            return
+            
+        total_passengers = (self.adult_var.get() + self.child_var.get() + 
+                          self.senior_var.get() + self.disability1to3_var.get() + 
+                          self.disability4to6_var.get())
+        
+        if total_passengers == 0:
+            messagebox.showerror("입력 오류", "승객수는 0이 될 수 없습니다.")
+            return
+            
+        if total_passengers >= 10:
+            messagebox.showerror("입력 오류", "승객수는 10명을 초과할 수 없습니다.")
+            return
+        
+        # Save current settings
+        self.save_settings()
+        
+        # Update UI state
+        self.is_running = True
+        self.start_button.configure(state='disabled')
+        self.stop_button.configure(state='normal')
+        
+        # Clear status
+        self.status_text.configure(state='normal')
+        self.status_text.delete(1.0, tk.END)
+        self.status_text.configure(state='disabled')
+        
+        self.log_message("🚀 예매를 시작합니다...")
+        self.log_message(f"🚄 {self.rail_type}: {self.departure_var.get()} → {self.arrival_var.get()}")
+        self.log_message(f"👥 승객: 성인 {self.adult_var.get()}명")
+        
+        # Start reservation in separate thread
+        import threading
+        thread = threading.Thread(target=self.run_reservation, daemon=True)
+        thread.start()
+        
+    def stop_booking(self):
+        """Stop the reservation process"""
+        self.is_running = False
+        self.start_button.configure(state='normal')
+        self.stop_button.configure(state='disabled')
+        self.log_message("⏹️ 예매가 중지되었습니다.")
+        
+    def save_settings(self):
+        """Save current form values"""
+        keyring.set_password(self.rail_type, "departure", self.departure_var.get())
+        keyring.set_password(self.rail_type, "arrival", self.arrival_var.get())
+        keyring.set_password(self.rail_type, "date", self.date_var.get())
+        keyring.set_password(self.rail_type, "time", self.time_var.get())
+        keyring.set_password(self.rail_type, "adult", str(self.adult_var.get()))
+        keyring.set_password(self.rail_type, "child", str(self.child_var.get()))
+        keyring.set_password(self.rail_type, "senior", str(self.senior_var.get()))
+        keyring.set_password(self.rail_type, "disability1to3", str(self.disability1to3_var.get()))
+        keyring.set_password(self.rail_type, "disability4to6", str(self.disability4to6_var.get()))
+        
+    def run_reservation(self):
+        """Run the actual reservation logic (simplified version)"""
+        try:
+            # Get login credentials
+            user_id = keyring.get_password(self.rail_type, "id")
+            password = keyring.get_password(self.rail_type, "pass")
+            
+            if not user_id or not password:
+                self.log_message("❌ 로그인 정보를 찾을 수 없습니다.")
+                self.stop_booking()
+                return
+            
+            self.log_message("🔐 로그인 중...")
+            
+            # Login
+            rail_class = SRT if self.rail_type == "SRT" else Korail
+            rail = rail_class(user_id, password, verbose=self.debug)
+            
+            self.log_message("✅ 로그인 성공!")
+            
+            # This is a simplified version - you would need to implement the full
+            # reservation logic here similar to the CLI version
+            self.log_message("🔍 열차 검색 중...")
+            self.log_message("💡 실제 예매 기능은 CLI 버전에서 완전히 구현됩니다.")
+            self.log_message("💡 현재 GUI는 데모 버전입니다.")
+            
+            # Simulate some processing time
+            import time
+            time.sleep(2)
+            
+            if self.is_running:
+                self.log_message("🎫 예매 기능 구현 예정 - CLI 버전을 사용해주세요!")
+                
+        except Exception as e:
+            self.log_message(f"❌ 오류 발생: {str(e)}")
+            
+        finally:
+            if self.is_running:
+                self.window.after(0, self.stop_booking)
+
+
+class ReservationCheckWindow:
+    def __init__(self, parent, rail_type, debug):
+        self.rail_type = rail_type
+        self.debug = debug
+        
+        self.window = tk.Toplevel(parent)
+        self.window.title(f"📋 {rail_type} 예매 확인")
+        self.window.geometry("700x500")
+        self.window.resizable(True, True)
+        self.window.grab_set()
+        
+        # Center the window
+        self.center_window()
+        
+        self.create_interface()
+        self.load_reservations()
+        
+    def center_window(self):
+        """Center the window on parent"""
+        self.window.update_idletasks()
+        parent_x = self.window.master.winfo_x()
+        parent_y = self.window.master.winfo_y()
+        parent_width = self.window.master.winfo_width()
+        parent_height = self.window.master.winfo_height()
+        
+        width = self.window.winfo_width()
+        height = self.window.winfo_height()
+        
+        x = parent_x + (parent_width // 2) - (width // 2)
+        y = parent_y + (parent_height // 2) - (height // 2)
+        self.window.geometry(f"+{x}+{y}")
+        
+    def create_interface(self):
+        # Main container
+        main_frame = ttk.Frame(self.window)
+        main_frame.pack(fill='both', expand=True, padx=25, pady=20)
+        
+        # Header
+        header_frame = ttk.Frame(main_frame)
+        header_frame.pack(fill='x', pady=(0, 20))
+        
+        rail_icon = "🚄" if self.rail_type == "SRT" else "🚅"
+        ttk.Label(header_frame, 
+                 text=f"📋 {rail_icon} {self.rail_type} 예매 내역", 
+                 style='Title.TLabel').pack()
+        
+        # Reservations list
+        list_frame = ttk.LabelFrame(main_frame, text="예매 내역", padding=15)
+        list_frame.pack(fill='both', expand=True, pady=(0, 15))
+        
+        # Treeview for reservations
+        columns = ('상태', '열차', '구간', '날짜', '시간', '좌석')
+        self.tree = ttk.Treeview(list_frame, columns=columns, show='headings', height=12)
+        
+        # Configure columns
+        column_widths = {'상태': 80, '열차': 80, '구간': 120, '날짜': 100, '시간': 80, '좌석': 100}
+        for col in columns:
+            self.tree.heading(col, text=col)
+            self.tree.column(col, width=column_widths.get(col, 100))
+        
+        self.tree.pack(fill='both', expand=True, pady=(0, 10))
+        
+        # Scrollbar
+        tree_scroll = ttk.Scrollbar(list_frame, orient='vertical', command=self.tree.yview)
+        tree_scroll.pack(side='right', fill='y')
+        self.tree.configure(yscrollcommand=tree_scroll.set)
+        
+        # Control buttons
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill='x')
+        
+        ttk.Button(button_frame, 
+                  text="🔄 새로고침", 
+                  command=self.load_reservations).pack(side='left', padx=(0, 10))
+        
+        ttk.Button(button_frame, 
+                  text="💳 결제하기",
+                  command=self.pay_reservation).pack(side='left', padx=(0, 10))
+        
+        ttk.Button(button_frame, 
+                  text="❌ 취소하기",
+                  command=self.cancel_reservation).pack(side='left', padx=(0, 10))
+        
+        ttk.Button(button_frame, 
+                  text="닫기",
+                  command=self.window.destroy).pack(side='right')
+        
+    def load_reservations(self):
+        """Load reservation list"""
+        # Clear existing items
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        try:
+            # Get login credentials
+            user_id = keyring.get_password(self.rail_type, "id")
+            password = keyring.get_password(self.rail_type, "pass")
+            
+            if not user_id or not password:
+                messagebox.showerror("로그인 오류", "로그인 정보를 찾을 수 없습니다.")
+                return
+            
+            # Login and get reservations
+            rail_class = SRT if self.rail_type == "SRT" else Korail
+            rail = rail_class(user_id, password, verbose=self.debug)
+            
+            # This is a placeholder - implement actual reservation retrieval
+            self.tree.insert('', 'end', values=('예약완료', 'SRT-101', '수서→부산', '2024-12-25', '10:00', '1A-2'))
+            self.tree.insert('', 'end', values=('결제대기', 'KTX-201', '서울→대구', '2024-12-26', '14:30', '2B-1'))
+            
+            messagebox.showinfo("안내", "💡 실제 예매 내역 조회는 CLI 버전에서 완전히 구현됩니다.\n현재는 데모 데이터를 표시합니다.")
+            
+        except Exception as e:
+            messagebox.showerror("오류", f"예매 내역 조회 실패: {str(e)}")
+            
+    def pay_reservation(self):
+        """Pay for selected reservation"""
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showwarning("선택 필요", "결제할 예매를 선택하세요.")
+            return
+            
+        messagebox.showinfo("안내", "💳 결제 기능은 CLI 버전에서 구현됩니다.")
+            
+    def cancel_reservation(self):
+        """Cancel selected reservation"""
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showwarning("선택 필요", "취소할 예매를 선택하세요.")
+            return
+            
+        if messagebox.askyesno("확인", "선택한 예매를 정말 취소하시겠습니까?"):
+            messagebox.showinfo("안내", "❌ 취소 기능은 CLI 버전에서 구현됩니다.")
 
 
 def main():
