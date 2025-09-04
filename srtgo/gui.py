@@ -4,11 +4,18 @@ from datetime import datetime, timedelta
 import threading
 import keyring
 import asyncio
-from .srtgo import (
-    login, reserve, check_reservation, set_login, set_kakao, 
-    set_station, edit_station, set_options, get_station, get_options,
-    STATIONS, DEFAULT_STATIONS
-)
+try:
+    from .srtgo import (
+        login, reserve, check_reservation, set_login, set_kakao, 
+        set_station, edit_station, set_options, get_station, get_options,
+        STATIONS, DEFAULT_STATIONS
+    )
+except ImportError:
+    from srtgo.srtgo import (
+        login, reserve, check_reservation, set_login, set_kakao, 
+        set_station, edit_station, set_options, get_station, get_options,
+        STATIONS, DEFAULT_STATIONS
+    )
 
 
 class SRTGoGUI:
@@ -367,7 +374,10 @@ class LoginSetupWindow:
             
         try:
             # Test login
-            from .srtgo import SRT, Korail
+            try:
+                from .srtgo import SRT, Korail
+            except ImportError:
+                from srtgo.srtgo import SRT, Korail
             rail = SRT if self.rail_type == "SRT" else Korail
             test_rail = rail(self.id_var.get(), self.pass_var.get(), verbose=self.debug)
             
@@ -433,7 +443,10 @@ class KakaoSetupWindow:
             keyring.set_password("kakao", "rest_api_key", self.api_key_var.get())
             
             # Call the existing set_kakao function from srtgo module
-            from .srtgo import set_kakao
+            try:
+                from .srtgo import set_kakao
+            except ImportError:
+                from srtgo.srtgo import set_kakao
             if set_kakao():
                 messagebox.showinfo("성공", "카카오톡 알림 설정이 완료되었습니다!")
                 self.window.destroy()
