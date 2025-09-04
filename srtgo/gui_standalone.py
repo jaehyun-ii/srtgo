@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 SRTGo GUI - Standalone version without CLI dependencies
 """
@@ -24,14 +25,14 @@ except keyring.errors.NoKeyringError:
             
         def _load_config(self):
             try:
-                with open(self.config_file, 'r') as f:
+                with open(self.config_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
             except:
                 return {}
                 
         def _save_config(self, config):
-            with open(self.config_file, 'w') as f:
-                json.dump(config, f)
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
                 
         def get_password(self, service, username):
             config = self._load_config()
@@ -121,11 +122,27 @@ class SRTGoGUI:
         style = ttk.Style()
         style.theme_use('clam')
         
-        # Configure colors
-        style.configure('Title.TLabel', font=('Arial', 16, 'bold'))
-        style.configure('Heading.TLabel', font=('Arial', 12, 'bold'))
-        style.configure('Success.TLabel', foreground='green', font=('Arial', 10, 'bold'))
-        style.configure('Error.TLabel', foreground='red', font=('Arial', 10, 'bold'))
+        # Configure fonts with Korean support
+        import sys
+        if sys.platform.startswith('win'):
+            # Windows Korean fonts
+            default_font = ('Malgun Gothic', 9)
+            title_font = ('Malgun Gothic', 16, 'bold')
+            heading_font = ('Malgun Gothic', 12, 'bold')
+        else:
+            # Linux/macOS fonts
+            default_font = ('Sans', 9)
+            title_font = ('Sans', 16, 'bold') 
+            heading_font = ('Sans', 12, 'bold')
+        
+        # Configure colors and fonts
+        style.configure('Title.TLabel', font=title_font)
+        style.configure('Heading.TLabel', font=heading_font)
+        style.configure('Success.TLabel', foreground='green', font=default_font)
+        style.configure('Error.TLabel', foreground='red', font=default_font)
+        
+        # Set default font for all widgets
+        self.root.option_add('*Font', default_font)
         
     def create_main_interface(self):
         # Main title
