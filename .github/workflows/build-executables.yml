@@ -1,0 +1,121 @@
+name: Build Executables
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            output-name: SRTGo-GUI.exe
+            build-args: --onefile --windowed --name=SRTGo-GUI
+          - os: ubuntu-latest  
+            output-name: SRTGo-GUI
+            build-args: --onefile --windowed --name=SRTGo-GUI
+          - os: macos-latest
+            output-name: SRTGo-GUI
+            build-args: --onefile --windowed --name=SRTGo-GUI
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install system dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y python3-tk
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+
+    - name: Install project dependencies
+      run: |
+        pip install click curl_cffi requests inquirer keyring PyCryptodome prompt_toolkit termcolor python-telegram-bot
+
+    - name: Build GUI executable
+      run: |
+        pyinstaller ${{ matrix.build-args }} srtgo/gui.py
+
+    - name: Build CLI executable  
+      run: |
+        pyinstaller --onefile --name=srtgo-cli srtgo/srtgo.py
+
+    - name: Create release directory
+      run: |
+        mkdir release
+        
+    - name: Copy executables (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        copy dist\SRTGo-GUI.exe release\
+        copy dist\srtgo-cli.exe release\
+        
+    - name: Copy executables (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        cp dist/SRTGo-GUI release/
+        cp dist/srtgo-cli release/
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: srtgo-${{ runner.os }}-${{ runner.arch }}
+        path: release/
+        retention-days: 30
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Create release archives
+      run: |
+        cd artifacts
+        
+        # Windows
+        cd srtgo-Windows-X64
+        zip -r ../../srtgo-windows-x64.zip *
+        cd ..
+        
+        # Linux
+        cd srtgo-Linux-X64  
+        tar -czf ../../srtgo-linux-x64.tar.gz *
+        cd ..
+        
+        # macOS
+        cd srtgo-macOS-X64
+        tar -czf ../../srtgo-macos-x64.tar.gz *
+        cd ..
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          srtgo-windows-x64.zip
+          srtgo-linux-x64.tar.gz
+          srtgo-macos-x64.tar.gz
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

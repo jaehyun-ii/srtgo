@@ -22,8 +22,12 @@ dependencies = [
     "keyring",
     "PyCryptodome",
     "prompt_toolkit>=3",
-    "python-telegram-bot",
     "termcolor"
+]
+
+[project.optional-dependencies]
+build = [
+    "pyinstaller>=5.0"
 ]
 dynamic = ["version"]
 [tool.setuptools_scm]
@@ -33,3 +37,4 @@ Homepage = "https://github.com/lapis42/srtgo"
 
 [project.scripts]
 srtgo = "srtgo.srtgo:srtgo"
+srtgo-gui = "srtgo.gui:main"

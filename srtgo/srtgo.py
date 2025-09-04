@@ -16,6 +16,9 @@ import keyring
 import telegram
 import time
 import re
+import requests
+import webbrowser
+from urllib.parse import urlencode
 
 from .ktx import (
     Korail,
@@ -136,10 +139,11 @@ def srtgo(debug=False):
         ("예매 확인/결제/취소", 2),
         ("로그인 설정", 3),
         ("텔레그램 설정", 4),
-        ("카드 설정", 5),
-        ("역 설정", 6),
-        ("역 직접 수정", 7),
-        ("예매 옵션 설정", 8),
+        ("카카오톡 설정", 5),
+        ("카드 설정", 6),
+        ("역 설정", 7),
+        ("역 직접 수정", 8),
+        ("예매 옵션 설정", 9),
         ("나가기", -1),
     ]
 
@@ -154,10 +158,11 @@ def srtgo(debug=False):
         2: lambda rt: check_reservation(rt, debug),
         3: lambda rt: set_login(rt, debug),
         4: lambda _: set_telegram(),
-        5: lambda _: set_card(),
-        6: lambda rt: set_station(rt),
-        7: lambda rt: edit_station(rt),
-        8: lambda _: set_options(),
+        5: lambda _: set_kakao(),
+        6: lambda _: set_card(),
+        7: lambda rt: set_station(rt),
+        8: lambda rt: edit_station(rt),
+        9: lambda _: set_options(),
     }
 
     while True:
@@ -168,7 +173,7 @@ def srtgo(debug=False):
         if choice == -1:
             break
 
-        if choice in {1, 2, 3, 6, 7}:
+        if choice in {1, 2, 3, 7, 8}:
             rail_type = inquirer.list_input(
                 message="열차 선택 (↕:이동, Enter: 선택, Ctrl-C: 취소)",
                 choices=RAIL_CHOICES,
@@ -335,6 +340,170 @@ def get_telegram() -> Optional[Callable[[str], Awaitable[None]]]:
                 await bot.send_message(chat_id=chat_id, text=text)
 
     return tgprintf
+
+
+def set_kakao() -> bool:
+    """카카오톡 나에게 보내기 설정"""
+    rest_api_key = keyring.get_password("kakao", "rest_api_key") or ""
+    
+    kakao_info = inquirer.prompt([
+        inquirer.Text(
+            "rest_api_key",
+            message="카카오 REST API 키 (Enter: 완료, Ctrl-C: 취소)",
+            default=rest_api_key,
+        )
+    ])
+    
+    if not kakao_info:
+        return False
+    
+    rest_api_key = kakao_info["rest_api_key"]
+    
+    if not rest_api_key:
+        print("REST API 키가 필요합니다.")
+        return False
+    
+    try:
+        # 카카오 로그인 및 토큰 획득
+        auth_url = "https://kauth.kakao.com/oauth/authorize"
+        params = {
+            "client_id": rest_api_key,
+            "redirect_uri": "https://example.com/oauth",
+            "response_type": "code"
+        }
+        
+        login_url = f"{auth_url}?{urlencode(params)}"
+        print(f"\n다음 URL로 접속하여 로그인하세요:")
+        print(login_url)
+        
+        # 브라우저 자동 열기
+        try:
+            webbrowser.open(login_url)
+        except:
+            pass
+            
+        auth_code = input("\n로그인 후 주소창의 'code=' 뒤의 값을 입력하세요: ").strip()
+        
+        if not auth_code:
+            print("인증 코드가 필요합니다.")
+            return False
+        
+        # 액세스 토큰 획득
+        token_url = "https://kauth.kakao.com/oauth/token"
+        token_data = {
+            "grant_type": "authorization_code",
+            "client_id": rest_api_key,
+            "redirect_uri": "https://example.com/oauth",
+            "code": auth_code
+        }
+        
+        token_response = requests.post(token_url, data=token_data)
+        token_json = token_response.json()
+        
+        if "access_token" not in token_json:
+            print(f"토큰 획득 실패: {token_json}")
+            return False
+        
+        access_token = token_json["access_token"]
+        refresh_token = token_json.get("refresh_token", "")
+        
+        # 토큰 저장
+        keyring.set_password("kakao", "ok", "1")
+        keyring.set_password("kakao", "rest_api_key", rest_api_key)
+        keyring.set_password("kakao", "access_token", access_token)
+        keyring.set_password("kakao", "refresh_token", refresh_token)
+        
+        # 테스트 메시지 전송
+        kakao_send = get_kakao()
+        if kakao_send("[SRTGO] 카카오톡 설정 완료"):
+            print("카카오톡 설정이 완료되었습니다!")
+            return True
+        else:
+            print("테스트 메시지 전송에 실패했습니다.")
+            return False
+            
+    except Exception as err:
+        print(f"설정 중 오류 발생: {err}")
+        keyring.delete_password("kakao", "ok")
+        return False
+
+
+def get_kakao() -> Optional[Callable[[str], bool]]:
+    """카카오톡 나에게 보내기 함수 반환"""
+    access_token = keyring.get_password("kakao", "access_token")
+    rest_api_key = keyring.get_password("kakao", "rest_api_key")
+    
+    def kakao_send(text: str) -> bool:
+        if not access_token or not rest_api_key:
+            return False
+            
+        try:
+            url = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+            
+            template_object = {
+                "object_type": "text",
+                "text": text,
+                "link": {
+                    "web_url": "https://github.com/lapis42/srtgo",
+                    "mobile_web_url": "https://github.com/lapis42/srtgo"
+                }
+            }
+            
+            data = {
+                "template_object": str(template_object).replace("'", '"')
+            }
+            
+            response = requests.post(url, headers=headers, data=data)
+            
+            if response.status_code == 401:
+                # 토큰 갱신 시도
+                if refresh_kakao_token():
+                    # 갱신된 토큰으로 재시도
+                    new_access_token = keyring.get_password("kakao", "access_token")
+                    headers["Authorization"] = f"Bearer {new_access_token}"
+                    response = requests.post(url, headers=headers, data=data)
+                
+            return response.status_code == 200
+            
+        except Exception:
+            return False
+    
+    return kakao_send
+
+
+def refresh_kakao_token() -> bool:
+    """카카오 액세스 토큰 갱신"""
+    refresh_token = keyring.get_password("kakao", "refresh_token")
+    rest_api_key = keyring.get_password("kakao", "rest_api_key")
+    
+    if not refresh_token or not rest_api_key:
+        return False
+        
+    try:
+        url = "https://kauth.kakao.com/oauth/token"
+        data = {
+            "grant_type": "refresh_token",
+            "client_id": rest_api_key,
+            "refresh_token": refresh_token
+        }
+        
+        response = requests.post(url, data=data)
+        token_json = response.json()
+        
+        if "access_token" in token_json:
+            keyring.set_password("kakao", "access_token", token_json["access_token"])
+            if "refresh_token" in token_json:
+                keyring.set_password("kakao", "refresh_token", token_json["refresh_token"])
+            return True
+            
+    except Exception:
+        pass
+        
+    return False
 
 
 def set_card() -> None:
@@ -685,8 +854,14 @@ def reserve(rail_type="SRT", debug=False):
             )
             msg += "\n결제 완료"
 
+        # 알림 전송 (텔레그램 또는 카카오톡)
         tgprintf = get_telegram()
-        asyncio.run(tgprintf(msg))
+        kakao_send = get_kakao()
+        
+        if kakao_send and kakao_send(msg):
+            pass  # 카카오톡 전송 성공
+        elif tgprintf:
+            asyncio.run(tgprintf(msg))
 
     # Reservation loop
     i_try = 0
@@ -789,8 +964,14 @@ def _handle_error(ex, msg=None):
         or f"\nException: {ex}, Type: {type(ex)}, Message: {ex.msg if hasattr(ex, 'msg') else 'No message attribute'}"
     )
     print(msg)
+    # 알림 전송 (텔레그램 또는 카카오톡)
     tgprintf = get_telegram()
-    asyncio.run(tgprintf(msg))
+    kakao_send = get_kakao()
+    
+    if kakao_send and kakao_send(msg):
+        pass  # 카카오톡 전송 성공
+    elif tgprintf:
+        asyncio.run(tgprintf(msg))
     return inquirer.confirm(message="계속할까요", default=True)
 
 
@@ -858,8 +1039,15 @@ def check_reservation(rail_type="SRT", debug=False):
                         out.extend(map(str, reservation.tickets))
 
             if out:
+                # 알림 전송 (텔레그램 또는 카카오톡)
                 tgprintf = get_telegram()
-                asyncio.run(tgprintf("\n".join(out)))
+                kakao_send = get_kakao()
+                message = "\n".join(out)
+                
+                if kakao_send and kakao_send(message):
+                    pass  # 카카오톡 전송 성공
+                elif tgprintf:
+                    asyncio.run(tgprintf(message))
             return
 
         # If choice is an unpaid reservation, ask to pay or cancel
