@@ -4,18 +4,20 @@ from datetime import datetime, timedelta
 import threading
 import keyring
 import asyncio
+# Import only necessary functions to avoid inquirer conflicts in GUI
 try:
     from .srtgo import (
-        login, reserve, check_reservation, set_login, set_kakao, 
-        set_station, edit_station, set_options, get_station, get_options,
-        STATIONS, DEFAULT_STATIONS
+        get_station, get_options, STATIONS, DEFAULT_STATIONS
     )
+    # Import classes directly to avoid inquirer
+    from .srt import SRT
+    from .ktx import Korail
 except ImportError:
     from srtgo.srtgo import (
-        login, reserve, check_reservation, set_login, set_kakao, 
-        set_station, edit_station, set_options, get_station, get_options,
-        STATIONS, DEFAULT_STATIONS
+        get_station, get_options, STATIONS, DEFAULT_STATIONS
     )
+    from srtgo.srt import SRT
+    from srtgo.ktx import Korail
 
 
 class SRTGoGUI:
@@ -373,11 +375,7 @@ class LoginSetupWindow:
             return
             
         try:
-            # Test login
-            try:
-                from .srtgo import SRT, Korail
-            except ImportError:
-                from srtgo.srtgo import SRT, Korail
+            # Test login - use already imported classes
             rail = SRT if self.rail_type == "SRT" else Korail
             test_rail = rail(self.id_var.get(), self.pass_var.get(), verbose=self.debug)
             

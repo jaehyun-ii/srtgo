@@ -49,7 +49,7 @@ jobs:
 
     - name: Build GUI executable
       run: |
-        pyinstaller ${{ matrix.build-args }} srtgo/gui.py
+        pyinstaller ${{ matrix.build-args }} srtgo/gui_standalone.py
 
     - name: Build CLI executable  
       run: |
